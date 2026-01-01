@@ -4,7 +4,6 @@
     if (window['hasNetBlockerUI']) return;
     window['hasNetBlockerUI'] = true;
 
-    // 2. 配置
     const STORAGE_KEY = 'net_blocker_pos_' + window.location.hostname;
     let isOffline = false;
 
@@ -16,7 +15,7 @@
         offlineBg: '#ef4444'     
     };
 
-    // 3. SVG 图标
+    // SVG 图标
     const SVG_ONLINE = `
         <svg viewBox="0 0 1024 1024" width="${CONFIG.iconSize}" height="${CONFIG.iconSize}" fill="currentColor" style="display:block;">
             <path d="M0 352.832l93.12 98.752c231.296-245.44 606.464-245.44 837.76 0L1024 352.832C741.44 53.056 283.008 53.056 0 352.832z m372.352 395.008L512 896l139.648-148.16c-76.8-81.92-202.048-81.92-279.296 0zM186.24 550.4l93.12 98.752c128.448-136.32 336.96-136.32 465.408 0L837.824 550.4c-179.648-190.592-471.488-190.592-651.648 0z"></path>
@@ -29,25 +28,18 @@
             </g>
         </svg>`;
 
-    // 4. 样式表
+    // 4. 样式表 (绝对定位修复版)
     const cssContent = `
+        /* 主容器永远保持球体大小，不随菜单变大，确保拖拽边界计算准确 */
         .floater {
             position: fixed;
-            display: flex;
-            align-items: center;
-            flex-direction: row-reverse; /* 默认：菜单在左，图标在右 */
-            gap: 10px;
-            user-select: none;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            width: 48px; 
+            height: 48px;
             z-index: 2147483647;
-            transition: opacity 0.3s;
+            user-select: none;
+            font-family: system-ui, -apple-system, sans-serif;
         }
 
-        /* 修复1：当在左侧时，改变方向，让菜单向右弹出 */
-        .floater.left-side {
-            flex-direction: row; /* 菜单在右，图标在左 */
-        }
-        
         .trigger-icon {
             width: 48px;
             height: 48px;
@@ -62,6 +54,8 @@
             cursor: grab;
             box-shadow: 0 4px 15px rgba(0,0,0,0.3);
             transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+            position: relative;
+            z-index: 2; /* 确保图标在菜单之上 */
         }
 
         .trigger-icon:hover {
@@ -74,7 +68,10 @@
             transform: scale(0.95);
         }
 
+        /* 菜单改为绝对定位，不占用文档流空间 */
         .menu {
+            position: absolute;
+            top: 0;
             display: flex;
             gap: 6px;
             background: rgba(20, 20, 20, 0.85);
@@ -86,8 +83,24 @@
             visibility: hidden;
             transition: all 0.2s ease-out;
             border: 1px solid rgba(255,255,255,0.05);
-            /* 修复2：允许菜单区域被作为拖拽把手 */
-            cursor: grab; 
+            /* 允许按住菜单背景拖拽 */
+            cursor: grab;
+            height: 36px; /* 固定高度与按钮适配 */
+            align-items: center;
+        }
+        
+        /* 默认：菜单在左侧弹出 (Right Side 模式) */
+        .menu.pop-left {
+            right: 55px; /* 48px图标 + 间距 */
+            left: auto;
+            transform: translateX(10px) scale(0.95);
+        }
+
+        /* 菜单在右侧弹出 (Left Side 模式) */
+        .menu.pop-right {
+            left: 55px;
+            right: auto;
+            transform: translateX(-10px) scale(0.95);
         }
 
         .menu:active {
@@ -98,6 +111,7 @@
             opacity: 1;
             pointer-events: auto;
             visibility: visible;
+            transform: translateX(0) scale(1);
         }
 
         .action-btn {
@@ -121,12 +135,10 @@
         }
     `;
 
-    // 5. 构建 DOM
     function createUI() {
         const hostDiv = document.createElement('div');
         hostDiv.style.cssText = "position: fixed; top: 0; left: 0; width: 0; height: 0; z-index: 2147483647;";
         const shadow = hostDiv.attachShadow({mode: 'open'});
-
         const styleTag = document.createElement('style');
         styleTag.textContent = cssContent;
         shadow.appendChild(styleTag);
@@ -134,24 +146,35 @@
         const wrapper = document.createElement('div');
         wrapper.className = 'floater';
 
-        // 辅助函数：根据位置决定菜单方向
-        function updateLayoutDirection(currentLeft) {
+        const triggerDiv = document.createElement('div');
+        triggerDiv.className = 'trigger-icon';
+        triggerDiv.innerHTML = SVG_ONLINE;
+
+        const menuDiv = document.createElement('div');
+        menuDiv.className = 'menu pop-left'; // 默认左弹
+
+        // 辅助：更新菜单方向
+        function updateMenuDirection(currentLeft) {
             const screenWidth = window.innerWidth;
             if (currentLeft < screenWidth / 2) {
-                wrapper.classList.add('left-side');
+                // 靠左，菜单向右弹
+                menuDiv.classList.remove('pop-left');
+                menuDiv.classList.add('pop-right');
             } else {
-                wrapper.classList.remove('left-side');
+                // 靠右，菜单向左弹
+                menuDiv.classList.remove('pop-right');
+                menuDiv.classList.add('pop-left');
             }
         }
 
-        // 位置初始化
+        // 初始化位置
         const savedPos = localStorage.getItem(STORAGE_KEY);
         if (savedPos) {
             try {
                 const { top, left } = JSON.parse(savedPos);
                 wrapper.style.top = top + 'px';
                 wrapper.style.left = left + 'px';
-                updateLayoutDirection(left); // 初始化方向
+                updateMenuDirection(left);
             } catch(e) {
                 wrapper.style.top = '80%';
                 wrapper.style.left = '90%';
@@ -161,20 +184,13 @@
             wrapper.style.left = '90%';
         }
 
-        const triggerDiv = document.createElement('div');
-        triggerDiv.className = 'trigger-icon';
-        triggerDiv.innerHTML = SVG_ONLINE;
-
-        const menuDiv = document.createElement('div');
-        menuDiv.className = 'menu';
-
         function createBtn(text, bgColor, textColor, onClick) {
             const btn = document.createElement('button');
             btn.className = 'action-btn';
             btn.textContent = text;
             btn.style.background = bgColor;
             btn.style.color = textColor;
-            // 关键：阻止冒泡，确保点击按钮时不会触发 wrapper 的拖拽逻辑
+            // 阻止冒泡，避免拖拽
             btn.addEventListener('mousedown', (e) => e.stopPropagation());
             btn.onclick = onClick;
             return btn;
@@ -194,40 +210,27 @@
             if (isOffline) {
                 wrapper.classList.add('offline');
                 triggerDiv.innerHTML = SVG_OFFLINE;
-                
-                btnOff.style.opacity = '0.5';
-                btnOff.style.cursor = 'default';
-                
-                btnOn.style.background = '#22c55e';
-                btnOn.style.opacity = '1';
-                btnOn.style.cursor = 'pointer';
+                btnOff.style.opacity = '0.5'; btnOff.style.cursor = 'default';
+                btnOn.style.background = '#22c55e'; btnOn.style.opacity = '1'; btnOn.style.cursor = 'pointer';
             } else {
                 wrapper.classList.remove('offline');
                 triggerDiv.innerHTML = SVG_ONLINE;
-                
-                btnOff.style.background = '#ef4444';
-                btnOff.style.opacity = '1';
-                btnOff.style.cursor = 'pointer';
-                
-                btnOn.style.background = 'rgba(255,255,255,0.1)';
-                btnOn.style.opacity = '0.5';
-                btnOn.style.cursor = 'default';
+                btnOff.style.background = '#ef4444'; btnOff.style.opacity = '1'; btnOff.style.cursor = 'pointer';
+                btnOn.style.background = 'rgba(255,255,255,0.1)'; btnOn.style.opacity = '0.5'; btnOn.style.cursor = 'default';
             }
         };
 
         const sendCommand = (offline) => {
             isOffline = offline;
             updateUI();
-            chrome.runtime.sendMessage({ 
-                command: offline ? "enable_offline" : "disable_offline" 
-            });
+            chrome.runtime.sendMessage({ command: offline ? "enable_offline" : "disable_offline" });
         };
 
-        // --- 拖拽逻辑 (修复版) ---
+        // --- 拖拽逻辑 ---
         let isDragging = false;
         let startX, startY, initialLeft, initialTop;
 
-        // 修复2：将监听器绑定到整个 wrapper，而不是 triggerDiv
+        // 监听 wrapper (包含图标和菜单)
         wrapper.addEventListener('mousedown', (e) => {
             if (e.button !== 0) return;
             isDragging = false;
@@ -236,6 +239,7 @@
             const rect = wrapper.getBoundingClientRect();
             initialLeft = rect.left;
             initialTop = rect.top;
+            
             document.addEventListener('mousemove', onMouseMove);
             document.addEventListener('mouseup', onMouseUp);
             e.preventDefault();
@@ -246,27 +250,52 @@
             const dy = e.clientY - startY;
             if (Math.abs(dx) > 2 || Math.abs(dy) > 2) {
                 isDragging = true;
-                wrapper.style.transition = 'none';
-                let newLeft = Math.min(Math.max(0, initialLeft + dx), window.innerWidth - 50);
-                let newTop = Math.min(Math.max(0, initialTop + dy), window.innerHeight - 50);
+                
+                // 1. 计算新坐标
+                let newLeft = initialLeft + dx;
+                let newTop = initialTop + dy;
+                
+                // 2. 边界限制 (修复溢出问题的核心)
+                // 容器宽度固定为48px，计算非常简单
+                const maxLeft = window.innerWidth - 48; 
+                const maxTop = window.innerHeight - 48;
+                
+                newLeft = Math.min(Math.max(0, newLeft), maxLeft);
+                newTop = Math.min(Math.max(0, newTop), maxTop);
                 
                 wrapper.style.left = newLeft + 'px';
                 wrapper.style.top = newTop + 'px';
 
-                // 实时更新菜单方向
-                updateLayoutDirection(newLeft);
+                // 3. 实时更新菜单方向
+                updateMenuDirection(newLeft);
             }
+        }
+
+        // 保存位置的核心逻辑
+        function savePosition() {
+            if (!wrapper) return;
+            const rect = wrapper.getBoundingClientRect();
+            localStorage.setItem(STORAGE_KEY, JSON.stringify({ top: rect.top, left: rect.left }));
         }
 
         function onMouseUp() {
             document.removeEventListener('mousemove', onMouseMove);
             document.removeEventListener('mouseup', onMouseUp);
-            wrapper.style.transition = 'opacity 0.3s';
             if (isDragging) {
-                const rect = wrapper.getBoundingClientRect();
-                localStorage.setItem(STORAGE_KEY, JSON.stringify({ top: rect.top, left: rect.left }));
+                savePosition();
             }
         }
+
+        // 修复：窗口失焦/切屏时强制保存 (防止位置重置)
+        window.addEventListener('blur', () => {
+            if (isDragging) {
+                // 强制停止拖拽并保存
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+                savePosition();
+                isDragging = false;
+            }
+        });
 
         chrome.runtime.onMessage.addListener((msg) => {
             if (msg.command === "sync_online") {
