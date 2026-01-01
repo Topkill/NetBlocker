@@ -5,7 +5,8 @@
     window['hasNetBlockerUI'] = true;
 
     const STORAGE_KEY = 'net_blocker_pos_' + window.location.hostname;
-    let isOffline = false;
+    // 状态缓存，防止重复刷新
+    let currentOfflineState = false;
 
     const CONFIG = {
         iconSize: '24px',        
@@ -15,7 +16,6 @@
         offlineBg: '#ef4444'     
     };
 
-    // SVG 图标
     const SVG_ONLINE = `
         <svg viewBox="0 0 1024 1024" width="${CONFIG.iconSize}" height="${CONFIG.iconSize}" fill="currentColor" style="display:block;">
             <path d="M0 352.832l93.12 98.752c231.296-245.44 606.464-245.44 837.76 0L1024 352.832C741.44 53.056 283.008 53.056 0 352.832z m372.352 395.008L512 896l139.648-148.16c-76.8-81.92-202.048-81.92-279.296 0zM186.24 550.4l93.12 98.752c128.448-136.32 336.96-136.32 465.408 0L837.824 550.4c-179.648-190.592-471.488-190.592-651.648 0z"></path>
@@ -28,9 +28,9 @@
             </g>
         </svg>`;
 
-    // 4. 样式表 (绝对定位修复版)
+    // 4. 样式表 (交互优化版)
     const cssContent = `
-        /* 主容器永远保持球体大小，不随菜单变大，确保拖拽边界计算准确 */
+        /* 主容器 */
         .floater {
             position: fixed;
             width: 48px; 
@@ -40,6 +40,7 @@
             font-family: system-ui, -apple-system, sans-serif;
         }
 
+        /* 核心球体 */
         .trigger-icon {
             width: 48px;
             height: 48px;
@@ -55,7 +56,7 @@
             box-shadow: 0 4px 15px rgba(0,0,0,0.3);
             transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
             position: relative;
-            z-index: 2; /* 确保图标在菜单之上 */
+            z-index: 2; /* 确保在菜单之上 */
         }
 
         .trigger-icon:hover {
@@ -68,50 +69,50 @@
             transform: scale(0.95);
         }
 
-        /* 菜单改为绝对定位，不占用文档流空间 */
+        /* 菜单 (交互修复核心) */
         .menu {
             position: absolute;
             top: 0;
             display: flex;
             gap: 6px;
-            background: rgba(20, 20, 20, 0.85);
+            background: rgba(20, 20, 20, 0.9);
             backdrop-filter: blur(10px);
             padding: 6px;
             border-radius: 12px;
-            opacity: 0;
-            pointer-events: none;
-            visibility: hidden;
-            transition: all 0.2s ease-out;
             border: 1px solid rgba(255,255,255,0.05);
-            /* 允许按住菜单背景拖拽 */
             cursor: grab;
-            height: 36px; /* 固定高度与按钮适配 */
+            height: 36px;
             align-items: center;
+
+            /* 默认状态：隐藏 */
+            opacity: 0;
+            visibility: hidden;
+            
+            /* 🔥 关键修复：关闭菜单时延迟 0.3秒 */
+            /* 这给了你充足的时间跨越图标和菜单之间的缝隙 */
+            transition: opacity 0.2s ease 0.3s, transform 0.2s ease 0.3s, visibility 0s linear 0.3s;
         }
         
-        /* 默认：菜单在左侧弹出 (Right Side 模式) */
+        /* 菜单弹出方向 */
         .menu.pop-left {
-            right: 55px; /* 48px图标 + 间距 */
-            left: auto;
+            right: 55px; left: auto;
             transform: translateX(10px) scale(0.95);
         }
-
-        /* 菜单在右侧弹出 (Left Side 模式) */
         .menu.pop-right {
-            left: 55px;
-            right: auto;
+            left: 55px; right: auto;
             transform: translateX(-10px) scale(0.95);
         }
 
-        .menu:active {
-            cursor: grabbing;
-        }
-        
-        .floater:hover .menu {
+        /* 悬停状态 (包括悬停球体 OR 悬停菜单本身) */
+        .floater:hover .menu,
+        .menu:hover {
             opacity: 1;
             pointer-events: auto;
             visibility: visible;
             transform: translateX(0) scale(1);
+            
+            /* 🔥 关键修复：打开菜单时无延迟 (0s) */
+            transition: opacity 0.2s ease 0s, transform 0.2s ease 0s, visibility 0s linear 0s;
         }
 
         .action-btn {
@@ -123,11 +124,10 @@
             cursor: pointer;
             color: white;
             white-space: nowrap;
-            transition: all 0.2s;
-            outline: none;
+            transition: opacity 0.2s; 
         }
-        .action-btn:active { transform: scale(0.95); }
 
+        /* 断网样式 */
         .floater.offline .trigger-icon {
             background: ${CONFIG.offlineBg};
             color: ${CONFIG.offlineColor};
@@ -153,17 +153,14 @@
         const menuDiv = document.createElement('div');
         menuDiv.className = 'menu pop-left'; // 默认左弹
 
-        // 辅助：更新菜单方向
+        // 动态调整菜单弹出方向
         function updateMenuDirection(currentLeft) {
-            const screenWidth = window.innerWidth;
-            if (currentLeft < screenWidth / 2) {
-                // 靠左，菜单向右弹
-                menuDiv.classList.remove('pop-left');
-                menuDiv.classList.add('pop-right');
+            if (currentLeft < window.innerWidth / 2) {
+                // 靠左 -> 向右弹
+                menuDiv.classList.replace('pop-left', 'pop-right');
             } else {
-                // 靠右，菜单向左弹
-                menuDiv.classList.remove('pop-right');
-                menuDiv.classList.add('pop-left');
+                // 靠右 -> 向左弹
+                menuDiv.classList.replace('pop-right', 'pop-left');
             }
         }
 
@@ -176,12 +173,10 @@
                 wrapper.style.left = left + 'px';
                 updateMenuDirection(left);
             } catch(e) {
-                wrapper.style.top = '80%';
-                wrapper.style.left = '90%';
+                wrapper.style.top = '80%'; wrapper.style.left = '90%';
             }
         } else {
-            wrapper.style.top = '80%';
-            wrapper.style.left = '90%';
+            wrapper.style.top = '80%'; wrapper.style.left = '90%';
         }
 
         function createBtn(text, bgColor, textColor, onClick) {
@@ -190,7 +185,6 @@
             btn.textContent = text;
             btn.style.background = bgColor;
             btn.style.color = textColor;
-            // 阻止冒泡，避免拖拽
             btn.addEventListener('mousedown', (e) => e.stopPropagation());
             btn.onclick = onClick;
             return btn;
@@ -206,8 +200,8 @@
         shadow.appendChild(wrapper);
         (document.body || document.documentElement).appendChild(hostDiv);
 
-        const updateUI = () => {
-            if (isOffline) {
+        const updateUI = (offline) => {
+            if (offline) {
                 wrapper.classList.add('offline');
                 triggerDiv.innerHTML = SVG_OFFLINE;
                 btnOff.style.opacity = '0.5'; btnOff.style.cursor = 'default';
@@ -221,16 +215,26 @@
         };
 
         const sendCommand = (offline) => {
-            isOffline = offline;
-            updateUI();
+            if (currentOfflineState === offline) return;
             chrome.runtime.sendMessage({ command: offline ? "enable_offline" : "disable_offline" });
+            currentOfflineState = offline;
+            isOffline = offline;
+            updateUI(offline);
         };
 
-        // --- 拖拽逻辑 ---
+        chrome.runtime.onMessage.addListener((msg) => {
+            if (msg.command === "sync_online") {
+                if (currentOfflineState === false) return;
+                currentOfflineState = false;
+                isOffline = false;
+                updateUI(false);
+            }
+        });
+
+        // 拖拽逻辑
         let isDragging = false;
         let startX, startY, initialLeft, initialTop;
 
-        // 监听 wrapper (包含图标和菜单)
         wrapper.addEventListener('mousedown', (e) => {
             if (e.button !== 0) return;
             isDragging = false;
@@ -239,7 +243,6 @@
             const rect = wrapper.getBoundingClientRect();
             initialLeft = rect.left;
             initialTop = rect.top;
-            
             document.addEventListener('mousemove', onMouseMove);
             document.addEventListener('mouseup', onMouseUp);
             e.preventDefault();
@@ -250,28 +253,19 @@
             const dy = e.clientY - startY;
             if (Math.abs(dx) > 2 || Math.abs(dy) > 2) {
                 isDragging = true;
-                
-                // 1. 计算新坐标
-                let newLeft = initialLeft + dx;
-                let newTop = initialTop + dy;
-                
-                // 2. 边界限制 (修复溢出问题的核心)
-                // 容器宽度固定为48px，计算非常简单
-                const maxLeft = window.innerWidth - 48; 
-                const maxTop = window.innerHeight - 48;
-                
-                newLeft = Math.min(Math.max(0, newLeft), maxLeft);
-                newTop = Math.min(Math.max(0, newTop), maxTop);
-                
-                wrapper.style.left = newLeft + 'px';
-                wrapper.style.top = newTop + 'px';
-
-                // 3. 实时更新菜单方向
-                updateMenuDirection(newLeft);
+                requestAnimationFrame(() => {
+                    const maxLeft = window.innerWidth - 48; 
+                    const maxTop = window.innerHeight - 48;
+                    let newLeft = Math.min(Math.max(0, initialLeft + dx), maxLeft);
+                    let newTop = Math.min(Math.max(0, initialTop + dy), maxTop);
+                    
+                    wrapper.style.left = newLeft + 'px';
+                    wrapper.style.top = newTop + 'px';
+                    updateMenuDirection(newLeft);
+                });
             }
         }
 
-        // 保存位置的核心逻辑
         function savePosition() {
             if (!wrapper) return;
             const rect = wrapper.getBoundingClientRect();
@@ -281,26 +275,15 @@
         function onMouseUp() {
             document.removeEventListener('mousemove', onMouseMove);
             document.removeEventListener('mouseup', onMouseUp);
-            if (isDragging) {
-                savePosition();
-            }
+            if (isDragging) savePosition();
         }
 
-        // 修复：窗口失焦/切屏时强制保存 (防止位置重置)
         window.addEventListener('blur', () => {
             if (isDragging) {
-                // 强制停止拖拽并保存
                 document.removeEventListener('mousemove', onMouseMove);
                 document.removeEventListener('mouseup', onMouseUp);
                 savePosition();
                 isDragging = false;
-            }
-        });
-
-        chrome.runtime.onMessage.addListener((msg) => {
-            if (msg.command === "sync_online") {
-                isOffline = false;
-                updateUI();
             }
         });
     }
