@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "断网模拟器 (DevTools版)",
+  "name": "断网模拟器",
   "version": "1.0",
   "permissions": [
     "debugger",
