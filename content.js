@@ -1,6 +1,5 @@
 // @ts-nocheck
 (function() {
-    // 1. 防止重复注入
     if (window['hasNetBlockerUI']) return;
     window['hasNetBlockerUI'] = true;
 
@@ -35,7 +34,6 @@
             z-index: 2147483647;
             user-select: none;
             font-family: system-ui, -apple-system, sans-serif;
-            /* 移除 left/top 的 transition，防止拖拽和 resize 时有延迟感，让跟随更紧手 */
         }
 
         .trigger-icon {
@@ -76,7 +74,6 @@
             border-radius: 20px;
             border: 1px solid rgba(255,255,255,0.05);
             box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-            
             opacity: 0;
             pointer-events: none;
             visibility: hidden;
@@ -157,46 +154,46 @@
             }
         }
 
-        // === 核心函数：强制归位 ===
-        // 无论初始化还是窗口调整，都调用这个函数确保不越界
-        function clampPosition(top, left) {
-            const maxLeft = window.innerWidth - 48; // 48是球体宽度
-            const maxTop = window.innerHeight - 48;
-            
-            // 限制在屏幕内
-            let safeLeft = Math.min(Math.max(0, left), maxLeft);
-            let safeTop = Math.min(Math.max(0, top), maxTop);
-            
-            wrapper.style.left = safeLeft + 'px';
-            wrapper.style.top = safeTop + 'px';
-            updateMenuDirection(safeLeft);
-        }
-
         // 初始化
         const savedPos = localStorage.getItem(STORAGE_KEY);
-        let initLeft = window.innerWidth - 60;
+        // 默认状态：锚点在右，距右60px
+        let initMode = 'right';
+        let initOffset = 60;
         let initTop = window.innerHeight * 0.8;
 
         if (savedPos) {
             try {
-                const { top, left } = JSON.parse(savedPos);
-                initLeft = left;
-                initTop = top;
+                const data = JSON.parse(savedPos);
+                // 优先读取新版数据结构
+                if (data.mode) {
+                    initMode = data.mode;
+                    initOffset = data.offset;
+                    initTop = data.top;
+                } else if (data.left !== undefined) {
+                    // 兼容旧数据
+                    initTop = data.top;
+                    if (data.left > window.innerWidth / 2) {
+                        initMode = 'right';
+                        initOffset = window.innerWidth - data.left - 48;
+                    } else {
+                        initMode = 'left';
+                        initOffset = data.left;
+                    }
+                }
             } catch(e) {}
         }
-        clampPosition(initTop, initLeft);
 
-        // === 🚀 新增：窗口缩放监听 (Resize Listener) ===
-        // 当浏览器窗口大小改变时，自动把球推回屏幕内
-        let resizeTimeout;
-        window.addEventListener('resize', () => {
-            // 节流处理，避免频繁计算
-            clearTimeout(resizeTimeout);
-            resizeTimeout = setTimeout(() => {
-                const rect = wrapper.getBoundingClientRect();
-                clampPosition(rect.top, rect.left);
-            }, 50); // 50ms 延迟足够流畅
-        });
+        // 应用初始位置 (应用锚点)
+        if (initMode === 'right') {
+            wrapper.style.left = 'auto';
+            wrapper.style.right = initOffset + 'px';
+            menuDiv.classList.replace('pop-right', 'pop-left');
+        } else {
+            wrapper.style.right = 'auto';
+            wrapper.style.left = initOffset + 'px';
+            menuDiv.classList.replace('pop-left', 'pop-right');
+        }
+        wrapper.style.top = initTop + 'px';
 
         // 渲染菜单
         function renderMenu(isOff) {
@@ -242,7 +239,6 @@
             updateUI(offline);
         };
 
-        // 监听断开
         chrome.runtime.onMessage.addListener((msg) => {
             if (msg.command === "sync_online") {
                 if (!isOffline) return;
@@ -260,9 +256,15 @@
             isDragging = false;
             startX = e.clientX;
             startY = e.clientY;
+            
+            // ⚡️ 拖拽开始：强制转换为绝对坐标 (px)，确保跟手
             const rect = wrapper.getBoundingClientRect();
             initialLeft = rect.left;
             initialTop = rect.top;
+            
+            wrapper.style.right = 'auto'; // 清除右锚点
+            wrapper.style.left = initialLeft + 'px'; // 锁定左坐标
+            
             document.addEventListener('mousemove', onMouseMove);
             document.addEventListener('mouseup', onMouseUp);
             e.preventDefault();
@@ -274,33 +276,89 @@
             if (Math.abs(dx) > 2 || Math.abs(dy) > 2) {
                 isDragging = true;
                 requestAnimationFrame(() => {
-                    const newLeft = initialLeft + dx;
-                    const newTop = initialTop + dy;
-                    // 拖拽时直接调用 clampPosition 实时限制
-                    clampPosition(newTop, newLeft);
+                    const maxLeft = window.innerWidth - 48; 
+                    const maxTop = window.innerHeight - 48;
+                    let newLeft = Math.min(Math.max(0, initialLeft + dx), maxLeft);
+                    let newTop = Math.min(Math.max(0, initialTop + dy), maxTop);
+                    
+                    wrapper.style.left = newLeft + 'px';
+                    wrapper.style.top = newTop + 'px';
+                    updateMenuDirection(newLeft);
                 });
             }
-        }
-
-        function savePosition() {
-            if (!wrapper) return;
-            const rect = wrapper.getBoundingClientRect();
-            localStorage.setItem(STORAGE_KEY, JSON.stringify({ top: rect.top, left: rect.left }));
         }
 
         function onMouseUp() {
             document.removeEventListener('mousemove', onMouseMove);
             document.removeEventListener('mouseup', onMouseUp);
-            if (isDragging) savePosition();
+            
+            if (isDragging) {
+                const rect = wrapper.getBoundingClientRect();
+                const center = rect.left + 24;
+                const screenWidth = window.innerWidth;
+                
+                let mode = 'left';
+                let offset = rect.left;
+
+                // ⚡️ 拖拽结束：智能决定钉在哪边
+                if (center > screenWidth / 2) {
+                    mode = 'right';
+                    offset = screenWidth - rect.right; // 计算距右边的像素
+                    
+                    wrapper.style.left = 'auto'; // 清除左坐标
+                    wrapper.style.right = offset + 'px'; // 锁定右锚点
+                } else {
+                    mode = 'left';
+                    offset = rect.left;
+                    // left 已经是这个值了
+                }
+
+                // 保存锚点状态
+                localStorage.setItem(STORAGE_KEY, JSON.stringify({ 
+                    mode: mode, 
+                    offset: offset, 
+                    top: rect.top 
+                }));
+            }
         }
 
         window.addEventListener('blur', () => {
             if (isDragging) {
                 document.removeEventListener('mousemove', onMouseMove);
                 document.removeEventListener('mouseup', onMouseUp);
-                savePosition();
+                const rect = wrapper.getBoundingClientRect();
+                // 意外中断时保存为 left 模式，防止出错
+                localStorage.setItem(STORAGE_KEY, JSON.stringify({ 
+                    mode: 'left', offset: rect.left, top: rect.top 
+                }));
                 isDragging = false;
             }
+        });
+        
+        // 🚀 窗口缩放防吞没逻辑
+        let resizeTimeout;
+        window.addEventListener('resize', () => {
+             clearTimeout(resizeTimeout);
+             resizeTimeout = setTimeout(() => {
+                 const rect = wrapper.getBoundingClientRect();
+                 const maxTop = window.innerHeight - 48;
+                 const maxLeft = window.innerWidth - 48;
+                 
+                 // 垂直修正
+                 if (rect.top > maxTop) wrapper.style.top = maxTop + 'px';
+                 
+                 // 水平修正 (如果被挤出去了)
+                 // 注意：如果是 right 模式，不用管右边；如果是 left 模式，不用管左边。
+                 // 但如果窗口变得特别小，可能会出现“左模式被挤出右边”或“右模式被挤出左边”。
+                 if (rect.left > maxLeft) {
+                     wrapper.style.left = 'auto';
+                     wrapper.style.right = '0px'; // 强制吸附右侧
+                 }
+                 if (rect.left < 0) {
+                     wrapper.style.right = 'auto';
+                     wrapper.style.left = '0px'; // 强制吸附左侧
+                 }
+             }, 100);
         });
     }
 
