@@ -9,26 +9,19 @@
     let isOffline = false;
 
     const CONFIG = {
-        iconSize: '24px',        // 图标尺寸
-        
-        // 联网状态
-        onlineColor: '#4ade80',  // 荧光绿
+        iconSize: '24px',        
+        onlineColor: '#4ade80',  
         onlineBg: 'rgba(30, 30, 35, 0.9)', 
-
-        // 断网状态
-        offlineColor: '#ffffff', // 纯白
-        offlineBg: '#ef4444'     // 警示红
+        offlineColor: '#ffffff', 
+        offlineBg: '#ef4444'     
     };
 
-    // 3. SVG 图标数据 (保留了加粗修正)
-    
-    // [联网图标]
+    // 3. SVG 图标
     const SVG_ONLINE = `
         <svg viewBox="0 0 1024 1024" width="${CONFIG.iconSize}" height="${CONFIG.iconSize}" fill="currentColor" style="display:block;">
             <path d="M0 352.832l93.12 98.752c231.296-245.44 606.464-245.44 837.76 0L1024 352.832C741.44 53.056 283.008 53.056 0 352.832z m372.352 395.008L512 896l139.648-148.16c-76.8-81.92-202.048-81.92-279.296 0zM186.24 550.4l93.12 98.752c128.448-136.32 336.96-136.32 465.408 0L837.824 550.4c-179.648-190.592-471.488-190.592-651.648 0z"></path>
         </svg>`;
 
-    // [断网图标] - 保持 stroke-width="60" 加粗效果
     const SVG_OFFLINE = `
         <svg viewBox="0 0 1339 1024" width="${CONFIG.iconSize}" style="height: auto; display:block;" fill="currentColor">
             <g stroke="currentColor" stroke-width="60" stroke-linejoin="round"> 
@@ -36,27 +29,30 @@
             </g>
         </svg>`;
 
-    // 4. 样式表 (已去除呼吸动画)
+    // 4. 样式表
     const cssContent = `
         .floater {
             position: fixed;
             display: flex;
             align-items: center;
-            flex-direction: row-reverse;
+            flex-direction: row-reverse; /* 默认：菜单在左，图标在右 */
             gap: 10px;
             user-select: none;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             z-index: 2147483647;
             transition: opacity 0.3s;
         }
+
+        /* 修复1：当在左侧时，改变方向，让菜单向右弹出 */
+        .floater.left-side {
+            flex-direction: row; /* 菜单在右，图标在左 */
+        }
         
         .trigger-icon {
             width: 48px;
             height: 48px;
-            
             background: ${CONFIG.onlineBg};
             color: ${CONFIG.onlineColor};
-            
             backdrop-filter: blur(5px);
             border: 1px solid rgba(255, 255, 255, 0.1);
             border-radius: 50%;
@@ -86,16 +82,20 @@
             padding: 6px;
             border-radius: 12px;
             opacity: 0;
-            transform: translateX(10px) scale(0.95);
             pointer-events: none;
             visibility: hidden;
             transition: all 0.2s ease-out;
             border: 1px solid rgba(255,255,255,0.05);
+            /* 修复2：允许菜单区域被作为拖拽把手 */
+            cursor: grab; 
+        }
+
+        .menu:active {
+            cursor: grabbing;
         }
         
         .floater:hover .menu {
             opacity: 1;
-            transform: translateX(0) scale(1);
             pointer-events: auto;
             visibility: visible;
         }
@@ -114,11 +114,9 @@
         }
         .action-btn:active { transform: scale(0.95); }
 
-        /* 断网状态覆盖样式 (无闪烁) */
         .floater.offline .trigger-icon {
             background: ${CONFIG.offlineBg};
             color: ${CONFIG.offlineColor};
-            /* 保留一个静态的红色阴影，增加层次感 */
             box-shadow: 0 0 10px rgba(239, 68, 68, 0.5); 
         }
     `;
@@ -136,6 +134,16 @@
         const wrapper = document.createElement('div');
         wrapper.className = 'floater';
 
+        // 辅助函数：根据位置决定菜单方向
+        function updateLayoutDirection(currentLeft) {
+            const screenWidth = window.innerWidth;
+            if (currentLeft < screenWidth / 2) {
+                wrapper.classList.add('left-side');
+            } else {
+                wrapper.classList.remove('left-side');
+            }
+        }
+
         // 位置初始化
         const savedPos = localStorage.getItem(STORAGE_KEY);
         if (savedPos) {
@@ -143,6 +151,7 @@
                 const { top, left } = JSON.parse(savedPos);
                 wrapper.style.top = top + 'px';
                 wrapper.style.left = left + 'px';
+                updateLayoutDirection(left); // 初始化方向
             } catch(e) {
                 wrapper.style.top = '80%';
                 wrapper.style.left = '90%';
@@ -165,6 +174,7 @@
             btn.textContent = text;
             btn.style.background = bgColor;
             btn.style.color = textColor;
+            // 关键：阻止冒泡，确保点击按钮时不会触发 wrapper 的拖拽逻辑
             btn.addEventListener('mousedown', (e) => e.stopPropagation());
             btn.onclick = onClick;
             return btn;
@@ -213,10 +223,12 @@
             });
         };
 
+        // --- 拖拽逻辑 (修复版) ---
         let isDragging = false;
         let startX, startY, initialLeft, initialTop;
 
-        triggerDiv.addEventListener('mousedown', (e) => {
+        // 修复2：将监听器绑定到整个 wrapper，而不是 triggerDiv
+        wrapper.addEventListener('mousedown', (e) => {
             if (e.button !== 0) return;
             isDragging = false;
             startX = e.clientX;
@@ -237,8 +249,12 @@
                 wrapper.style.transition = 'none';
                 let newLeft = Math.min(Math.max(0, initialLeft + dx), window.innerWidth - 50);
                 let newTop = Math.min(Math.max(0, initialTop + dy), window.innerHeight - 50);
+                
                 wrapper.style.left = newLeft + 'px';
                 wrapper.style.top = newTop + 'px';
+
+                // 实时更新菜单方向
+                updateLayoutDirection(newLeft);
             }
         }
 
