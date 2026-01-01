@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "断网模拟器 (DevTools版)",
+  "version": "1.0",
+  "permissions": [
+    "debugger",
+    "activeTab",
+    "scripting"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ]
+}
