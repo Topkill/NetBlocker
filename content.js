@@ -1,3 +1,4 @@
+// @ts-nocheck
 (function() {
     // 1. 防止重复注入
     if (window.hasNetBlockerUI) return;
