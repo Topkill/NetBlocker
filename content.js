@@ -20,15 +20,15 @@
         offlineBg: '#ef4444'     // 警示红
     };
 
-    // 3. SVG 图标数据
+    // 3. SVG 图标数据 (保留了加粗修正)
     
-    // [联网图标] - 保持原样
+    // [联网图标]
     const SVG_ONLINE = `
         <svg viewBox="0 0 1024 1024" width="${CONFIG.iconSize}" height="${CONFIG.iconSize}" fill="currentColor" style="display:block;">
             <path d="M0 352.832l93.12 98.752c231.296-245.44 606.464-245.44 837.76 0L1024 352.832C741.44 53.056 283.008 53.056 0 352.832z m372.352 395.008L512 896l139.648-148.16c-76.8-81.92-202.048-81.92-279.296 0zM186.24 550.4l93.12 98.752c128.448-136.32 336.96-136.32 465.408 0L837.824 550.4c-179.648-190.592-471.488-190.592-651.648 0z"></path>
         </svg>`;
 
-    // [断网图标] - ⚡️已修复：添加 stroke-width="60" 强行加粗
+    // [断网图标] - 保持 stroke-width="60" 加粗效果
     const SVG_OFFLINE = `
         <svg viewBox="0 0 1339 1024" width="${CONFIG.iconSize}" style="height: auto; display:block;" fill="currentColor">
             <g stroke="currentColor" stroke-width="60" stroke-linejoin="round"> 
@@ -36,7 +36,7 @@
             </g>
         </svg>`;
 
-    // 4. 样式表 (保持高颜值)
+    // 4. 样式表 (已去除呼吸动画)
     const cssContent = `
         .floater {
             position: fixed;
@@ -114,18 +114,12 @@
         }
         .action-btn:active { transform: scale(0.95); }
 
-        /* 断网状态覆盖样式 */
+        /* 断网状态覆盖样式 (无闪烁) */
         .floater.offline .trigger-icon {
             background: ${CONFIG.offlineBg};
             color: ${CONFIG.offlineColor};
-            box-shadow: 0 0 15px rgba(239, 68, 68, 0.6);
-            animation: breathe 2s infinite;
-        }
-
-        @keyframes breathe {
-            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
-            70% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+            /* 保留一个静态的红色阴影，增加层次感 */
+            box-shadow: 0 0 10px rgba(239, 68, 68, 0.5); 
         }
     `;
 
