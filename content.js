@@ -35,6 +35,7 @@
             z-index: 2147483647;
             user-select: none;
             font-family: system-ui, -apple-system, sans-serif;
+            /* 移除 left/top 的 transition，防止拖拽和 resize 时有延迟感，让跟随更紧手 */
         }
 
         .trigger-icon {
@@ -59,13 +60,11 @@
             transform: scale(1.1);
             box-shadow: 0 8px 25px rgba(0,0,0,0.4);
         }
-        
         .trigger-icon:active {
             cursor: grabbing;
             transform: scale(0.95);
         }
 
-        /* 菜单样式 */
         .menu {
             position: absolute;
             top: 6px; 
@@ -81,7 +80,6 @@
             opacity: 0;
             pointer-events: none;
             visibility: hidden;
-            /* 关闭时延迟 0.5s，防止断触 */
             transition: opacity 0.2s ease 0.5s, transform 0.2s ease 0.5s, visibility 0s linear 0.5s;
             cursor: grab;
             height: 36px;
@@ -97,14 +95,12 @@
             transform: translateX(-10px) scale(0.95);
         }
 
-        /* 悬停显示 */
         .floater:hover .menu,
         .menu:hover {
             opacity: 1;
             pointer-events: auto;
             visibility: visible;
             transform: translateX(0) scale(1);
-            /* 打开时无延迟 */
             transition: opacity 0.2s ease 0s, transform 0.2s ease 0s, visibility 0s linear 0s;
         }
 
@@ -161,30 +157,48 @@
             }
         }
 
-        // === 🚀 关键修复：安全初始化 ===
+        // === 核心函数：强制归位 ===
+        // 无论初始化还是窗口调整，都调用这个函数确保不越界
+        function clampPosition(top, left) {
+            const maxLeft = window.innerWidth - 48; // 48是球体宽度
+            const maxTop = window.innerHeight - 48;
+            
+            // 限制在屏幕内
+            let safeLeft = Math.min(Math.max(0, left), maxLeft);
+            let safeTop = Math.min(Math.max(0, top), maxTop);
+            
+            wrapper.style.left = safeLeft + 'px';
+            wrapper.style.top = safeTop + 'px';
+            updateMenuDirection(safeLeft);
+        }
+
+        // 初始化
         const savedPos = localStorage.getItem(STORAGE_KEY);
-        let safeLeft = window.innerWidth - 60;
-        let safeTop = window.innerHeight * 0.8;
+        let initLeft = window.innerWidth - 60;
+        let initTop = window.innerHeight * 0.8;
 
         if (savedPos) {
             try {
                 const { top, left } = JSON.parse(savedPos);
-                // 检查坐标是否溢出屏幕
-                const maxLeft = window.innerWidth - 48;
-                const maxTop = window.innerHeight - 48;
-                
-                // 如果坐标在屏幕外，强制重置
-                if (left >= 0 && left <= maxLeft) safeLeft = left;
-                if (top >= 0 && top <= maxTop) safeTop = top;
+                initLeft = left;
+                initTop = top;
             } catch(e) {}
         }
-        
-        // 应用安全坐标
-        wrapper.style.top = safeTop + 'px';
-        wrapper.style.left = safeLeft + 'px';
-        updateMenuDirection(safeLeft);
+        clampPosition(initTop, initLeft);
 
-        // 渲染菜单内容
+        // === 🚀 新增：窗口缩放监听 (Resize Listener) ===
+        // 当浏览器窗口大小改变时，自动把球推回屏幕内
+        let resizeTimeout;
+        window.addEventListener('resize', () => {
+            // 节流处理，避免频繁计算
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(() => {
+                const rect = wrapper.getBoundingClientRect();
+                clampPosition(rect.top, rect.left);
+            }, 50); // 50ms 延迟足够流畅
+        });
+
+        // 渲染菜单
         function renderMenu(isOff) {
             menuDiv.innerHTML = '';
             if (!isOff) {
@@ -203,7 +217,7 @@
         }
         renderMenu(false);
 
-        menuDiv.appendChild(document.createTextNode('')); // 占位防坍塌
+        menuDiv.appendChild(document.createTextNode('')); 
         wrapper.appendChild(triggerDiv);
         wrapper.appendChild(menuDiv);
         shadow.appendChild(wrapper);
@@ -228,7 +242,7 @@
             updateUI(offline);
         };
 
-        // 监听断开连接
+        // 监听断开
         chrome.runtime.onMessage.addListener((msg) => {
             if (msg.command === "sync_online") {
                 if (!isOffline) return;
@@ -260,14 +274,10 @@
             if (Math.abs(dx) > 2 || Math.abs(dy) > 2) {
                 isDragging = true;
                 requestAnimationFrame(() => {
-                    const maxLeft = window.innerWidth - 48; 
-                    const maxTop = window.innerHeight - 48;
-                    let newLeft = Math.min(Math.max(0, initialLeft + dx), maxLeft);
-                    let newTop = Math.min(Math.max(0, initialTop + dy), maxTop);
-                    
-                    wrapper.style.left = newLeft + 'px';
-                    wrapper.style.top = newTop + 'px';
-                    updateMenuDirection(newLeft);
+                    const newLeft = initialLeft + dx;
+                    const newTop = initialTop + dy;
+                    // 拖拽时直接调用 clampPosition 实时限制
+                    clampPosition(newTop, newLeft);
                 });
             }
         }
