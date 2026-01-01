@@ -5,8 +5,7 @@
     window['hasNetBlockerUI'] = true;
 
     const STORAGE_KEY = 'net_blocker_pos_' + window.location.hostname;
-    // 状态缓存，防止重复刷新
-    let currentOfflineState = false;
+    let isOffline = false;
 
     const CONFIG = {
         iconSize: '24px',        
@@ -28,9 +27,7 @@
             </g>
         </svg>`;
 
-    // 4. 样式表 (交互优化版)
     const cssContent = `
-        /* 主容器 */
         .floater {
             position: fixed;
             width: 48px; 
@@ -40,7 +37,6 @@
             font-family: system-ui, -apple-system, sans-serif;
         }
 
-        /* 核心球体 */
         .trigger-icon {
             width: 48px;
             height: 48px;
@@ -54,9 +50,9 @@
             justify-content: center;
             cursor: grab;
             box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-            transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+            transition: all 0.5s cubic-bezier(0.25, 0.8, 0.25, 1);
             position: relative;
-            z-index: 2; /* 确保在菜单之上 */
+            z-index: 2;
         }
 
         .trigger-icon:hover {
@@ -69,65 +65,69 @@
             transform: scale(0.95);
         }
 
-        /* 菜单 (交互修复核心) */
+        /* 菜单样式 */
         .menu {
             position: absolute;
-            top: 0;
+            top: 6px; 
             display: flex;
-            gap: 6px;
+            align-items: center;
             background: rgba(20, 20, 20, 0.9);
             backdrop-filter: blur(10px);
-            padding: 6px;
-            border-radius: 12px;
+            padding: 4px 12px;
+            border-radius: 20px;
             border: 1px solid rgba(255,255,255,0.05);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            
+            opacity: 0;
+            pointer-events: none;
+            visibility: hidden;
+            /* 关闭时延迟 0.5s，防止断触 */
+            transition: opacity 0.2s ease 0.5s, transform 0.2s ease 0.5s, visibility 0s linear 0.5s;
             cursor: grab;
             height: 36px;
-            align-items: center;
-
-            /* 默认状态：隐藏 */
-            opacity: 0;
-            visibility: hidden;
-            
-            /* 🔥 关键修复：关闭菜单时延迟 0.3秒 */
-            /* 这给了你充足的时间跨越图标和菜单之间的缝隙 */
-            transition: opacity 0.2s ease 0.3s, transform 0.2s ease 0.3s, visibility 0s linear 0.3s;
+            white-space: nowrap;
         }
         
-        /* 菜单弹出方向 */
         .menu.pop-left {
-            right: 55px; left: auto;
+            right: 52px; left: auto;
             transform: translateX(10px) scale(0.95);
         }
         .menu.pop-right {
-            left: 55px; right: auto;
+            left: 52px; right: auto;
             transform: translateX(-10px) scale(0.95);
         }
 
-        /* 悬停状态 (包括悬停球体 OR 悬停菜单本身) */
+        /* 悬停显示 */
         .floater:hover .menu,
         .menu:hover {
             opacity: 1;
             pointer-events: auto;
             visibility: visible;
             transform: translateX(0) scale(1);
-            
-            /* 🔥 关键修复：打开菜单时无延迟 (0s) */
+            /* 打开时无延迟 */
             transition: opacity 0.2s ease 0s, transform 0.2s ease 0s, visibility 0s linear 0s;
         }
 
         .action-btn {
             border: none;
-            padding: 8px 16px;
-            border-radius: 8px;
+            padding: 6px 12px;
+            border-radius: 6px;
             font-size: 13px;
             font-weight: 600;
             cursor: pointer;
             color: white;
+            background: #ef4444;
             white-space: nowrap;
-            transition: opacity 0.2s; 
+        }
+        
+        .status-text {
+            font-size: 12px;
+            color: #ccc;
+            font-weight: 500;
+            pointer-events: none;
+            user-select: none;
         }
 
-        /* 断网样式 */
         .floater.offline .trigger-icon {
             background: ${CONFIG.offlineBg};
             color: ${CONFIG.offlineColor};
@@ -151,50 +151,59 @@
         triggerDiv.innerHTML = SVG_ONLINE;
 
         const menuDiv = document.createElement('div');
-        menuDiv.className = 'menu pop-left'; // 默认左弹
+        menuDiv.className = 'menu pop-left';
 
-        // 动态调整菜单弹出方向
         function updateMenuDirection(currentLeft) {
             if (currentLeft < window.innerWidth / 2) {
-                // 靠左 -> 向右弹
                 menuDiv.classList.replace('pop-left', 'pop-right');
             } else {
-                // 靠右 -> 向左弹
                 menuDiv.classList.replace('pop-right', 'pop-left');
             }
         }
 
-        // 初始化位置
+        // === 🚀 关键修复：安全初始化 ===
         const savedPos = localStorage.getItem(STORAGE_KEY);
+        let safeLeft = window.innerWidth - 60;
+        let safeTop = window.innerHeight * 0.8;
+
         if (savedPos) {
             try {
                 const { top, left } = JSON.parse(savedPos);
-                wrapper.style.top = top + 'px';
-                wrapper.style.left = left + 'px';
-                updateMenuDirection(left);
-            } catch(e) {
-                wrapper.style.top = '80%'; wrapper.style.left = '90%';
+                // 检查坐标是否溢出屏幕
+                const maxLeft = window.innerWidth - 48;
+                const maxTop = window.innerHeight - 48;
+                
+                // 如果坐标在屏幕外，强制重置
+                if (left >= 0 && left <= maxLeft) safeLeft = left;
+                if (top >= 0 && top <= maxTop) safeTop = top;
+            } catch(e) {}
+        }
+        
+        // 应用安全坐标
+        wrapper.style.top = safeTop + 'px';
+        wrapper.style.left = safeLeft + 'px';
+        updateMenuDirection(safeLeft);
+
+        // 渲染菜单内容
+        function renderMenu(isOff) {
+            menuDiv.innerHTML = '';
+            if (!isOff) {
+                const btn = document.createElement('button');
+                btn.className = 'action-btn';
+                btn.textContent = '断网';
+                btn.addEventListener('mousedown', (e) => e.stopPropagation());
+                btn.onclick = () => sendCommand(true);
+                menuDiv.appendChild(btn);
+            } else {
+                const text = document.createElement('span');
+                text.className = 'status-text';
+                text.textContent = '点击顶部 "取消" 恢复';
+                menuDiv.appendChild(text);
             }
-        } else {
-            wrapper.style.top = '80%'; wrapper.style.left = '90%';
         }
+        renderMenu(false);
 
-        function createBtn(text, bgColor, textColor, onClick) {
-            const btn = document.createElement('button');
-            btn.className = 'action-btn';
-            btn.textContent = text;
-            btn.style.background = bgColor;
-            btn.style.color = textColor;
-            btn.addEventListener('mousedown', (e) => e.stopPropagation());
-            btn.onclick = onClick;
-            return btn;
-        }
-
-        const btnOff = createBtn('断网', '#ef4444', '#fff', () => sendCommand(true));
-        const btnOn = createBtn('联网', 'rgba(255,255,255,0.1)', '#fff', () => sendCommand(false));
-
-        menuDiv.appendChild(btnOff);
-        menuDiv.appendChild(btnOn);
+        menuDiv.appendChild(document.createTextNode('')); // 占位防坍塌
         wrapper.appendChild(triggerDiv);
         wrapper.appendChild(menuDiv);
         shadow.appendChild(wrapper);
@@ -204,28 +213,25 @@
             if (offline) {
                 wrapper.classList.add('offline');
                 triggerDiv.innerHTML = SVG_OFFLINE;
-                btnOff.style.opacity = '0.5'; btnOff.style.cursor = 'default';
-                btnOn.style.background = '#22c55e'; btnOn.style.opacity = '1'; btnOn.style.cursor = 'pointer';
+                renderMenu(true);
             } else {
                 wrapper.classList.remove('offline');
                 triggerDiv.innerHTML = SVG_ONLINE;
-                btnOff.style.background = '#ef4444'; btnOff.style.opacity = '1'; btnOff.style.cursor = 'pointer';
-                btnOn.style.background = 'rgba(255,255,255,0.1)'; btnOn.style.opacity = '0.5'; btnOn.style.cursor = 'default';
+                renderMenu(false);
             }
         };
 
         const sendCommand = (offline) => {
-            if (currentOfflineState === offline) return;
+            if (isOffline === offline) return;
             chrome.runtime.sendMessage({ command: offline ? "enable_offline" : "disable_offline" });
-            currentOfflineState = offline;
             isOffline = offline;
             updateUI(offline);
         };
 
+        // 监听断开连接
         chrome.runtime.onMessage.addListener((msg) => {
             if (msg.command === "sync_online") {
-                if (currentOfflineState === false) return;
-                currentOfflineState = false;
+                if (!isOffline) return;
                 isOffline = false;
                 updateUI(false);
             }
